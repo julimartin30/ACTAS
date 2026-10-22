@@ -205,7 +205,9 @@
       const total = hTitulo + hCab + filas.length * hFila;
       rect(x0, yT, anchoT, total, { lw: 1.2 });
       // Título
-      celda(etiqueta + ' ' + (t.nombre || ''), x0, yT, anchoT, hTitulo, { bold: true, size: 8 });
+      const pp = Number(t.ppFavor) || 0;
+      celda(etiqueta + ' ' + (t.nombre || ''), x0, yT, pp ? anchoT - 120 : anchoT, hTitulo, { bold: true, size: 8 });
+      if (pp) celda(`+${pp} gol${pp > 1 ? 'es' : ''} en propia puerta a favor`, x0 + anchoT - 120, yT, 120, hTitulo, { size: 6.5, align: 'right', color: ROJO, bold: true });
       linea(x0, yT + hTitulo, x0 + anchoT, yT + hTitulo, { lw: 1 });
       // Cabecera de columnas
       let cx = x0;
@@ -303,10 +305,49 @@
     const hObs = yRes - 6 - yB;
 
     // Observaciones (+ incidencias de firma)
+    // Amonestaciones con su motivo
+    const tarjetas = (o) => {
+      const l = [];
+      if (Number(o.amarillas) >= 1) l.push(['a1', Number(o.amarillas) >= 2 ? '1ª amarilla' : 'Amarilla']);
+      if (Number(o.amarillas) >= 2) l.push(['a2', '2ª amarilla']);
+      if (o.roja) l.push(['r', 'Roja']);
+      return l;
+    };
+    const lineasAmon = [];
+    ['local', 'visitante'].forEach((l) => {
+      const t = acta[l];
+      const personas = [
+        ...(t.jugadores || []).filter((j) => j.juega).map((j) => [j, (j.dorsal ? 'Nº ' + j.dorsal + ' ' : '') + [j.nombre, j.apellidos].filter(Boolean).join(' ')]),
+        [t.entrenador, 'Entrenador ' + [t.entrenador && t.entrenador.nombre, t.entrenador && t.entrenador.apellidos].filter(Boolean).join(' ')],
+        ...(esF5 ? [[t.guia, 'Guía ' + [t.guia && t.guia.nombre, t.guia && t.guia.apellidos].filter(Boolean).join(' ')]] : []),
+      ];
+      personas.forEach(([o, quien]) => {
+        if (!o) return;
+        tarjetas(o).forEach(([c, etq]) => {
+          const motivo = ((o.motivos || {})[c] || '').trim();
+          lineasAmon.push(`- ${t.nombre} · ${quien.trim()} · ${etq}: ${motivo || '(sin motivo indicado)'}`);
+        });
+      });
+    });
+    const bloqueAmon = lineasAmon.length ? ['AMONESTACIONES:', ...lineasAmon].join('\n') : '';
+    const extraPP = ['local', 'visitante']
+      .filter((l) => Number(acta[l].ppFavor) > 0)
+      .map((l) => {
+        const n = Number(acta[l].ppFavor);
+        const otro = acta[l === 'local' ? 'visitante' : 'local'];
+        return `${n} gol${n > 1 ? 'es' : ''} en propia puerta de ${otro.nombre} a favor de ${acta[l].nombre}.`;
+      });
+    const extraEnt = ['local', 'visitante']
+      .filter((l) => acta[l].entrenador && acta[l].entrenador.origen === 'manual' && (acta[l].entrenador.nombre || acta[l].entrenador.apellidos))
+      .map((l) => {
+        const en = acta[l].entrenador;
+        const datos = [en.dni ? 'DNI ' + en.dni : '', en.licencia ? 'licencia ' + en.licencia : ''].filter(Boolean).join(', ');
+        return `Entrenador de ${acta[l].nombre} introducido a mano por el árbitro: ${[en.nombre, en.apellidos].filter(Boolean).join(' ')}${datos ? ' (' + datos + ')' : ''}.`;
+      });
     const extra = (acta.incidenciasFirma || []).map(
       (inc) => `Acta cerrada sin firma del entrenador del equipo ${inc.lado} (${acta[inc.lado].nombre}): ${inc.motivo}${inc.detalle ? ' - ' + inc.detalle : ''}.`
     );
-    const textoObs = [acta.observaciones || '', ...extra].filter((x) => x.trim()).join('\n');
+    const textoObs = [bloqueAmon, acta.observaciones || '', ...extraPP, ...extraEnt, ...extra].filter((x) => x.trim()).join('\n');
     const ox = esF5 ? M + anchoT + 8 : M + 100;
     const ow = W - M - ox;
     rect(ox, yB, ow, hObs, { lw: 1.2 });
@@ -317,7 +358,7 @@
     const caben = Math.floor((hObs - 16) / lhObs);
     const desbordan = lineasObs.length > caben;
     lineasObs.slice(0, desbordan ? caben - 1 : caben).forEach((l, i) => texto(l, ox + 5, yB + 21 + i * lhObs, sizeObs));
-    if (desbordan) texto('(continúa en la página siguiente)', ox + 5, yB + 21 + (caben - 1) * lhObs, sizeObs, { bold: true, color: TENUE });
+    if (desbordan) texto('(texto completo en la página siguiente)', ox + 5, yB + 21 + (caben - 1) * lhObs, sizeObs, { bold: true, color: TENUE });
 
     // Fisioterapeuta (fútbol 5)
     if (esF5) {
@@ -377,7 +418,7 @@
     if (desbordan) {
       page = doc.addPage([W, H]);
       paginas.push(page);
-      texto('OBSERVACIONES (continuación) · ' + (acta.local.nombre || '') + ' - ' + (acta.visitante.nombre || ''), M, M + 12, 10, { bold: true });
+      texto('OBSERVACIONES (texto completo) · ' + (acta.local.nombre || '') + ' - ' + (acta.visitante.nombre || ''), M, M + 12, 10, { bold: true });
       const resto = partir(textoObs, W - 2 * M, 9);
       const porPag = Math.floor((H - 2 * M - 40) / 11.5);
       resto.slice(0, porPag).forEach((l, i) => texto(l, M, M + 34 + i * 11.5, 9));

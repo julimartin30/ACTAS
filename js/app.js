@@ -166,6 +166,7 @@
       entrenador: { apellidos: '', nombre: '', amarillas: 0, roja: false },
       guia: { apellidos: '', nombre: '', amarillas: 0, roja: false },
       faltas: [0, 0],
+      ppFavor: 0,
       firma: null,
     };
   }
@@ -193,24 +194,35 @@
     };
   }
 
-  const golesDe = (t) => convocados(t).filter((j) => j.participa !== false).reduce((s, j) => s + (Number(j.goles) || 0), 0);
+  const jugaron = (t) => convocados(t).filter((j) => j.participa !== false);
+  const golesDe = (t) => jugaron(t).reduce((s, j) => s + (Number(j.goles) || 0), 0);
+  /** Goles en propia puerta del rival que suben al marcador de este equipo. */
+  const ppDe = (t) => Number(t.ppFavor) || 0;
+  /** Goles que cuentan en el marcador de un equipo. */
+  const marcadorDe = (a, t) => golesDe(t) + ppDe(t);
 
   function sincronizarResultado(a) {
     if (!a.resultado.manual) {
-      a.resultado.local = String(golesDe(a.local));
-      a.resultado.visitante = String(golesDe(a.visitante));
+      a.resultado.local = String(marcadorDe(a, a.local));
+      a.resultado.visitante = String(marcadorDe(a, a.visitante));
     }
   }
 
   /** Contenido que firma el entrenador: todo menos observaciones y firmas. */
+  const sinMotivos = (o) => {
+    if (!o) return o;
+    const { motivos, ...resto } = o;
+    return resto;
+  };
   function contenidoFirmable(a) {
     const limpiar = (t) => ({
       equipoId: t.equipoId,
       nombre: t.nombre,
       jugadores: convocados(t).map(({ dorsal, posicion, apellidos, nombre, goles, amarillas, roja, participa }) => ({ dorsal, posicion, apellidos, nombre, participa: participa !== false, goles, amarillas, roja })),
-      entrenador: t.entrenador,
-      guia: modalidad(a) === 'f5' ? t.guia : null,
+      entrenador: sinMotivos(t.entrenador),
+      guia: modalidad(a) === 'f5' ? sinMotivos(t.guia) : null,
       faltas: t.faltas,
+      ppFavor: ppDe(t),
     });
     return JSON.stringify({ numero: a.numero, competicion: a.competicion, partido: a.partido, local: limpiar(a.local), visitante: limpiar(a.visitante), resultado: [a.resultado.local, a.resultado.visitante] });
   }
@@ -563,7 +575,7 @@
               juega: false,
               plantilla: true,
             }));
-            nuevo.entrenador = { ...nuevo.entrenador, ...(cfg.entrenador || {}) };
+            nuevo.entrenador = { ...nuevo.entrenador, ...(cfg.entrenador || {}), origen: cfg.entrenador && (cfg.entrenador.nombre || cfg.entrenador.apellidos) ? 'registrado' : 'manual' };
             nuevo.guia = { ...nuevo.guia, ...(cfg.guia || {}) };
             if (lado === 'local' && !a.partido.instalacion && cfg.instalacion) a.partido.instalacion = cfg.instalacion;
           }
@@ -685,6 +697,55 @@
 
     const persona = (titulo, obj) => el('div.persona', el('h3', titulo), el('div.fila', campo('Apellidos', obj, 'apellidos'), campo('Nombre', obj, 'nombre')));
 
+    /** Entrenador: el registrado o una persona escrita a mano. */
+    const bloqueEntrenador = () => {
+      const caja = el('div.persona.persona-entrenador');
+      const cfg = t.equipoId ? equipoCfg(t.equipoId) : null;
+      const reg = cfg && cfg.entrenador && (cfg.entrenador.nombre || cfg.entrenador.apellidos) ? cfg.entrenador : null;
+      const pintar = () => {
+        const en = t.entrenador;
+        if (!en.origen) en.origen = reg && en.nombre === reg.nombre && en.apellidos === reg.apellidos ? 'registrado' : en.nombre || en.apellidos ? 'manual' : reg ? 'registrado' : 'manual';
+        if (en.origen === 'registrado' && !reg) en.origen = 'manual';
+        if (en.origen !== 'registrado') en.origen = 'manual';
+        const valor = en.origen;
+        const sel = el(
+          'select',
+          {
+            'aria-label': 'Quién hace de entrenador',
+            onchange: (e) => {
+              const v = e.target.value;
+              const base = { amarillas: en.amarillas || 0, roja: !!en.roja };
+              if (v === 'registrado') t.entrenador = { ...base, apellidos: reg.apellidos || '', nombre: reg.nombre || '', origen: 'registrado' };
+              else t.entrenador = { ...base, apellidos: '', nombre: '', dni: '', licencia: '', origen: 'manual' };
+              guardar();
+              pintar();
+              if (v === 'manual') {
+                const i = caja.querySelector('input');
+                if (i) i.focus();
+              }
+            },
+          },
+          reg ? el('option', { value: 'registrado', selected: valor === 'registrado' }, 'Entrenador: ' + [reg.nombre, reg.apellidos].filter(Boolean).join(' ')) : null,
+          el('option', { value: 'manual', selected: valor === 'manual' }, 'Introducir a mano')
+        );
+        caja.replaceChildren(
+          ...[
+          el('h3', 'Entrenador'),
+          el('label.campo', el('span', 'Entrenador del partido'), sel),
+          en.origen === 'manual'
+            ? [
+                el('div.fila', campo('Apellidos', en, 'apellidos', {}, true), campo('Nombre', en, 'nombre', {}, true)),
+                el('div.fila', campo('DNI', en, 'dni', { autocapitalize: 'characters' }), campo('Nº de licencia', en, 'licencia', { placeholder: 'Si la tiene' })),
+                el('p.ayuda', { style: 'margin:0' }, 'Quedará indicado en las observaciones del acta que el entrenador se ha introducido a mano.'),
+              ]
+            : el('div.ayuda', 'Entrenador dado de alta por la organización.'),
+          ].flat()
+        );
+      };
+      pintar();
+      return caja;
+    };
+
     cont.append(
       el(
         'div.tarjeta',
@@ -737,7 +798,7 @@
         el('p.ayuda', 'Marca ✓ a los jugadores que figuran en el acta y revisa su dorsal. Los de la plantilla no se pueden renombrar; si falta alguien, añádelo a mano.'),
         lista
       ),
-      el('div.tarjeta', el('h2', 'Cuerpo técnico'), el('div.staff', persona('Entrenador', t.entrenador), esF5 ? persona('Guía', t.guia) : null))
+      el('div.tarjeta', el('h2', 'Cuerpo técnico'), el('div.staff', bloqueEntrenador(), esF5 ? persona('Guía', t.guia) : null))
     );
   }
 
@@ -754,7 +815,8 @@
 
     const pintarContador = () => {
       const c = convocados(t);
-      contador.textContent = `${c.filter((j) => j.participa !== false).length} de ${c.length} han participado · ${golesDe(t)} goles`;
+      const pp = ppDe(t);
+      contador.textContent = `${c.filter((j) => j.participa !== false).length} de ${c.length} han participado · ${golesDe(t)} goles` + (pp ? ` + ${pp} en propia puerta = ${golesDe(t) + pp}` : '');
     };
 
     const fila = (j) => {
@@ -766,6 +828,8 @@
         pintarContador();
       };
       const goles = el('div.c-goles', el('span.etq-movil', 'Goles'), contadorNum(j, 'goles', 0, 99, (v) => cambiar('goles', v), 'Goles'));
+      const motivos = motivosTarjetas(j);
+      motivos.classList.add('c-motivos');
       const actualizar = () => {
         tr.classList.toggle('no-participa', j.participa === false);
         tr.classList.toggle('portero', j.posicion === 'Portero');
@@ -791,8 +855,9 @@
         el('div.c-dorsal', el('span.dorsal', j.dorsal || '—')),
         el('div.c-persona', el('b', [j.nombre, j.apellidos].filter(Boolean).join(' ') || 'Sin nombre'), el('small', j.posicion === 'Portero' ? 'Portero' : 'Jugador')),
         goles,
-        el('div.c-amarillas', el('span.etq-movil', 'Amar.'), contadorNum(j, 'amarillas', 0, 2, (v) => cambiar('amarillas', v), 'Tarjetas amarillas', 'amarilla')),
-        el('div.c-roja', botonRoja(j, (v) => cambiar('roja', v)))
+        el('div.c-amarillas', el('span.etq-movil', 'Amar.'), contadorNum(j, 'amarillas', 0, 2, (v) => (cambiar('amarillas', v), motivos.refrescar()), 'Tarjetas amarillas', 'amarilla')),
+        el('div.c-roja', botonRoja(j, (v) => (cambiar('roja', v), motivos.refrescar()))),
+        motivos
       );
       actualizar();
       return tr;
@@ -806,13 +871,22 @@
     };
     pintarLista();
 
-    const persona = (titulo, obj) =>
-      el(
+    const persona = (titulo, obj) => {
+      const motivos = motivosTarjetas(obj);
+      return el(
         'div.persona',
         el('h3', titulo),
-        el('div', el('b', [obj.nombre, obj.apellidos].filter(Boolean).join(' ') || '—')),
-        el('div.tarjetas', el('span.ayuda', 'Amarillas'), contadorNum(obj, 'amarillas', 0, 2, (v) => ((obj.amarillas = v), guardar()), 'Amarillas', 'amarilla'), el('span.ayuda', 'Roja'), botonRoja(obj, (v) => ((obj.roja = v), guardar())))
+        el('div', el('b', [obj.nombre, obj.apellidos].filter(Boolean).join(' ') || '—'), obj.origen === 'manual' && (obj.nombre || obj.apellidos) ? el('span.ayuda', ' · introducido a mano') : null),
+        el(
+          'div.tarjetas',
+          el('span.ayuda', 'Amarillas'),
+          contadorNum(obj, 'amarillas', 0, 2, (v) => ((obj.amarillas = v), guardar(), motivos.refrescar()), 'Amarillas', 'amarilla'),
+          el('span.ayuda', 'Roja'),
+          botonRoja(obj, (v) => ((obj.roja = v), guardar(), motivos.refrescar()))
+        ),
+        motivos
       );
+    };
 
     cont.append(
       el(
@@ -829,6 +903,23 @@
         el('p.ayuda', 'Desmarca a quien no haya llegado a jugar. Anota goles y tarjetas; los jugadores del banquillo también pueden ser amonestados.'),
         lista
       ),
+      el(
+        'div.tarjeta.tarjeta-pp',
+        el(
+          'div.fila-pp',
+          el(
+            'div',
+            el('h2', { style: 'margin:0 0 2px' }, 'Goles en propia puerta a favor'),
+            el('p.ayuda', { style: 'margin:0' }, `Goles que un jugador de ${nombreEquipo(a[lado === 'local' ? 'visitante' : 'local'])} ha marcado en su propia portería. Suman al marcador de ${nombreEquipo(t)}.`)
+          ),
+          contadorNum(t, 'ppFavor', 0, 99, (v) => {
+            t.ppFavor = v;
+            sincronizarResultado(a);
+            guardar();
+            pintarContador();
+          }, 'Goles en propia puerta a favor de ' + nombreEquipo(t), 'pp')
+        )
+      ),
       el('div.tarjeta', el('h2', 'Amonestaciones al cuerpo técnico'), el('div.staff', persona('Entrenador', t.entrenador), esF5 ? persona('Guía', t.guia) : null)),
       el(
         'div.tarjeta',
@@ -837,6 +928,49 @@
         el('div.faltas', [0, 1].map((parte) => casillasFaltas(t, parte)))
       )
     );
+  }
+
+  /** Tarjetas mostradas por una persona, en orden: [['a1','1ª amarilla'], ...] */
+  function tarjetasDe(obj) {
+    const l = [];
+    if (Number(obj.amarillas) >= 1) l.push(['a1', Number(obj.amarillas) >= 2 ? '1ª amarilla' : 'Amarilla']);
+    if (Number(obj.amarillas) >= 2) l.push(['a2', '2ª amarilla']);
+    if (obj.roja) l.push(['r', 'Roja']);
+    return l;
+  }
+
+  /** Líneas de texto para el motivo de cada tarjeta. Se redibuja con .refrescar(). */
+  function motivosTarjetas(obj) {
+    const caja = el('div.motivos');
+    caja.refrescar = () => {
+      obj.motivos = obj.motivos || {};
+      const activas = tarjetasDe(obj);
+      // Borra el motivo de tarjetas que ya no existen
+      Object.keys(obj.motivos).forEach((k) => {
+        if (!activas.some(([c]) => c === k)) delete obj.motivos[k];
+      });
+      caja.replaceChildren(
+        ...activas.map(([c, etq]) =>
+          el(
+            'label.motivo.motivo-' + (c === 'r' ? 'roja' : 'amarilla'),
+            el('span.etq-tarjeta', etq),
+            el('input', {
+              value: obj.motivos[c] || '',
+              placeholder: 'Motivo de la amonestación',
+              'aria-label': 'Motivo: ' + etq + ' a ' + [obj.nombre, obj.apellidos].filter(Boolean).join(' '),
+              maxlength: 200,
+              oninput: (e) => {
+                obj.motivos[c] = e.target.value;
+                guardar();
+              },
+            })
+          )
+        )
+      );
+      caja.hidden = !activas.length;
+    };
+    caja.refrescar();
+    return caja;
   }
 
   function contadorNum(obj, clave, min, max, alCambiar, etiqueta, clase) {
@@ -897,17 +1031,17 @@
     sincronizarResultado(a);
     const aviso_ = el('div');
     const comprobar = () => {
-      const gl = golesDe(a.local),
-        gv = golesDe(a.visitante);
+      const gl = marcadorDe(a, a.local),
+        gv = marcadorDe(a, a.visitante);
       const difiere = String(gl) !== String(a.resultado.local) || String(gv) !== String(a.resultado.visitante);
       aviso_.replaceChildren(
         difiere
           ? el(
               'div.nota.nota-alerta',
-              `La suma de goles de los jugadores es ${gl}-${gv}. Si la diferencia se debe a goles en propia puerta u otra causa, explícalo en observaciones. `,
+              `Según los goles anotados (incluidos los de propia puerta) el resultado sería ${gl}-${gv}. Si hay otra causa, explícala en observaciones. `,
               el('button.btn.btn-peq', { onclick: () => ((a.resultado.manual = false), sincronizarResultado(a), guardar(), pintarEditor()) }, 'Usar suma de goles')
             )
-          : el('div.nota.nota-ok', 'El resultado coincide con los goles anotados a los jugadores.')
+          : el('div.nota.nota-ok', 'El resultado coincide con los goles anotados' + (ppDe(a.local) + ppDe(a.visitante) ? ', incluidos los de propia puerta.' : '.'))
       );
     };
     const marcador = (lado) =>
@@ -1082,6 +1216,9 @@
         dorsales[j.dorsal] = true;
       });
       if (!c.some((j) => j.posicion === 'Portero') && c.length) avisos.push(nom + ': no hay ningún portero.');
+      const en = t.entrenador || {};
+      if (en.origen === 'manual' && (en.nombre || en.apellidos) && !(en.nombre || '').trim()) errores.push(nom + ': falta el nombre del entrenador.');
+      if (!(en.nombre || '').trim() && !(en.apellidos || '').trim()) avisos.push(nom + ': no se ha indicado entrenador.');
     });
     if (a.local.nombre && a.local.nombre === a.visitante.nombre) errores.push('Local y visitante son el mismo equipo.');
     return { errores, avisos };
@@ -1091,7 +1228,19 @@
   function validar(a) {
     const { errores, avisos } = validarFase1(a);
     if (a.resultado.local === '' || a.resultado.visitante === '') errores.push('Falta el resultado.');
-    if (String(golesDe(a.local)) !== String(a.resultado.local) || String(golesDe(a.visitante)) !== String(a.resultado.visitante))
+    const sinMotivo = [];
+    ['local', 'visitante'].forEach((l) => {
+      const t = a[l];
+      const personas = [...convocados(t).map((j) => [j, (j.dorsal ? 'nº ' + j.dorsal + ' ' : '') + [j.nombre, j.apellidos].filter(Boolean).join(' ')]), [t.entrenador, 'entrenador'], ...(modalidad(a) === 'f5' ? [[t.guia, 'guía']] : [])];
+      personas.forEach(([o, quien]) => {
+        if (!o) return;
+        tarjetasDe(o).forEach(([c, etq]) => {
+          if (!((o.motivos || {})[c] || '').trim()) sinMotivo.push(`${nombreEquipo(t)}: ${etq.toLowerCase()} a ${quien}`);
+        });
+      });
+    });
+    if (sinMotivo.length) avisos.push('Falta el motivo de: ' + sinMotivo.join('; ') + '.');
+    if (String(marcadorDe(a, a.local)) !== String(a.resultado.local) || String(marcadorDe(a, a.visitante)) !== String(a.resultado.visitante))
       avisos.push('El resultado no coincide con la suma de goles de los jugadores.');
     return { errores, avisos };
   }

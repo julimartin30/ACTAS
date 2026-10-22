@@ -215,8 +215,22 @@ dialog.dialogo::backdrop { background: rgba(19, 35, 63, 0.45); }
 .contador button:active { background: #dde1e8; }
 .contador output { min-width: 40px; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
 .contador.amarilla output { color: #8a6d00; }
+.contador.pp { height: 46px; }
+.contador.pp button { width: 46px; font-size: 1.3rem; }
+.contador.pp output { min-width: 52px; font-size: 1.3rem; }
+.fila-pp { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .toggle-roja { width: 44px; height: 36px; border-radius: 8px; border: 1.5px solid #9a9a9a; background: #fff; cursor: pointer; font-weight: 800; color: var(--tinta-suave); }
 .toggle-roja[aria-pressed="true"] { background: var(--acento); border-color: var(--acento); color: #fff; }
+/* Motivos de amonestación */
+.motivos { display: grid; gap: 6px; }
+.jug .c-motivos { grid-column: 1 / -1; padding: 2px 0 2px 52px; }
+.motivo { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 8px; }
+.motivo input { min-height: 38px; border-width: 2px; }
+.motivo-amarilla input { border-color: #d8b200; background: #fffbe6; }
+.motivo-roja input { border-color: var(--acento); background: #fff1f3; }
+.etq-tarjeta { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 800; color: var(--tinta); }
+.etq-tarjeta::before { content: ''; width: 12px; height: 16px; border-radius: 2px; background: var(--amarillo); box-shadow: 0 0 0 1px rgba(0,0,0,.25); flex: none; }
+.motivo-roja .etq-tarjeta::before { background: var(--acento); }
 .etq-movil { display: none; font-size: 0.7rem; font-weight: 800; color: var(--tinta-suave); text-transform: uppercase; }
 
 /* Selector de fases */
@@ -260,6 +274,8 @@ dialog.dialogo::backdrop { background: rgba(19, 35, 63, 0.45); }
   .jug .c-goles, .jug .c-amarillas { display: flex; align-items: center; gap: 6px; }
 }
 @media (max-width: 640px) {
+  .jug .c-motivos { padding-left: 0; }
+  .motivo { grid-template-columns: 1fr; gap: 3px; }
   .jug .c-persona b { white-space: normal; }
   .jug.juego {
     grid-template-columns: 36px 48px 1fr 1fr 48px;
