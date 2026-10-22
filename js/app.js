@@ -121,7 +121,7 @@
         'div.login',
         el(
           'div.tarjeta',
-          el('div.cabecera-login', el('div.distintivo', 'ACT'), el('div', el('h1', 'Actas de partido'), el('div.ayuda', 'Acceso para árbitros'))),
+          el('div.cabecera-login', el('img.logo-login', { src: 'assets/logo.png', alt: 'FEDC' }), el('h1', 'Actas de partido'), el('div.ayuda', 'Acceso para árbitros')),
           error ? el('div.nota.nota-error', error) : null,
           S.fichero ? form : el('div.nota.nota-alerta', 'La aplicación todavía no está configurada. El administrador debe publicar data/config.json.')
         ),
@@ -189,10 +189,11 @@
       observaciones: '',
       incidenciasFirma: [],
       cierre: null,
+      fase: 1,
     };
   }
 
-  const golesDe = (t) => convocados(t).reduce((s, j) => s + (Number(j.goles) || 0), 0);
+  const golesDe = (t) => convocados(t).filter((j) => j.participa !== false).reduce((s, j) => s + (Number(j.goles) || 0), 0);
 
   function sincronizarResultado(a) {
     if (!a.resultado.manual) {
@@ -206,7 +207,7 @@
     const limpiar = (t) => ({
       equipoId: t.equipoId,
       nombre: t.nombre,
-      jugadores: convocados(t).map(({ dorsal, posicion, apellidos, nombre, goles, amarillas, roja }) => ({ dorsal, posicion, apellidos, nombre, goles, amarillas, roja })),
+      jugadores: convocados(t).map(({ dorsal, posicion, apellidos, nombre, goles, amarillas, roja, participa }) => ({ dorsal, posicion, apellidos, nombre, participa: participa !== false, goles, amarillas, roja })),
       entrenador: t.entrenador,
       guia: modalidad(a) === 'f5' ? t.guia : null,
       faltas: t.faltas,
@@ -231,7 +232,7 @@
       const c = competicion(a.competicion);
       return el(
         'div.item-acta',
-        el('div.partido', nombreEquipo(a.local) + ' – ' + nombreEquipo(a.visitante), ' ', el('span.chip.chip-' + a.estado, a.estado === 'cerrada' ? 'Cerrada' : 'Borrador')),
+        el('div.partido', nombreEquipo(a.local) + ' – ' + nombreEquipo(a.visitante), ' ', el('span.chip.chip-' + a.estado, a.estado === 'cerrada' ? 'Cerrada' : (a.fase === 2 ? 'Fase 2 · Partido' : 'Fase 1 · Antes del partido'))),
         el(
           'div.acciones',
           a.estado === 'borrador'
@@ -276,7 +277,8 @@
       guardar(true);
     }
     S.acta = a;
-    S.pestana = 'partido';
+    a.fase = a.fase || 1;
+    S.pestana = a.fase === 2 ? 'juego-local' : 'partido';
     pintarEditor();
   }
 
@@ -288,18 +290,47 @@
   }
 
   /* ================= Editor ================= */
-  const PESTANAS = [
-    ['partido', 'Partido'],
-    ['local', 'Local'],
-    ['visitante', 'Visitante'],
-    ['resultado', 'Resultado'],
-    ['cierre', 'Firmas y cierre'],
-  ];
+  // Fase 1: antes del partido (datos del encuentro y participantes).
+  // Fase 2: partido (participación, goles, amonestaciones, faltas, resultado, firmas).
+  const FASES = {
+    1: [
+      ['partido', 'Datos del encuentro'],
+      ['conv-local', 'Local'],
+      ['conv-visitante', 'Visitante'],
+    ],
+    2: [
+      ['juego-local', 'Local'],
+      ['juego-visitante', 'Visitante'],
+      ['resultado', 'Resultado'],
+      ['cierre', 'Firmas y cierre'],
+    ],
+  };
+  const pestanasFase = (a) => FASES[a.fase || 1];
 
   function pintarEditor() {
     const a = S.acta;
-    const idx = PESTANAS.findIndex((p) => p[0] === S.pestana);
+    a.fase = a.fase || 1;
+    const pest = pestanasFase(a);
+    if (!pest.some((p) => p[0] === S.pestana)) S.pestana = pest[0][0];
+    const idx = pest.findIndex((p) => p[0] === S.pestana);
     const c = competicion(a.competicion);
+
+    const botonFase = (n, titulo, sub) =>
+      el(
+        'button.fase' + (a.fase === n ? '.activa' : '') + (a.fase > n ? '.hecha' : ''),
+        {
+          type: 'button',
+          'aria-current': a.fase === n ? 'step' : null,
+          onclick: () => {
+            if (n === a.fase) return;
+            if (n === 2) confirmarFase1();
+            else volverFase1();
+          },
+        },
+        el('span.n', a.fase > n ? '✓' : n),
+        el('span', el('b', titulo), el('small', sub))
+      );
+
     app.replaceChildren(
       el(
         'div.cabecera-acta',
@@ -308,16 +339,34 @@
       ),
       el('div.ayuda', c ? c.nombre + ' · ' + MODALIDADES[c.modalidad] : 'Elige la competición para empezar', ' · ', a.numero),
       el(
+        'div.fases',
+        botonFase(1, 'Antes del partido', 'Datos del encuentro y participantes'),
+        botonFase(2, 'Partido', 'Resultado, participación y amonestaciones')
+      ),
+      el(
         'nav.pestanas',
         { role: 'tablist' },
-        PESTANAS.map(([id, t], i) =>
+        pest.map(([id, t], i) =>
           el('button.pestana', { role: 'tab', 'aria-selected': String(id === S.pestana), onclick: () => irA(id) }, el('span.num', i + 1), t)
         )
       ),
       el('section#contenido')
     );
     const cont = $('#contenido');
-    ({ partido: tabPartido, local: (n) => tabEquipo(n, 'local'), visitante: (n) => tabEquipo(n, 'visitante'), resultado: tabResultado, cierre: tabCierre })[S.pestana](cont);
+    ({
+      partido: tabPartido,
+      'conv-local': (n) => tabConvocatoria(n, 'local'),
+      'conv-visitante': (n) => tabConvocatoria(n, 'visitante'),
+      'juego-local': (n) => tabJuego(n, 'local'),
+      'juego-visitante': (n) => tabJuego(n, 'visitante'),
+      resultado: tabResultado,
+      cierre: tabCierre,
+    })[S.pestana](cont);
+
+    let siguiente;
+    if (idx < pest.length - 1) siguiente = el('button.btn.btn-oscuro', { onclick: () => irA(pest[idx + 1][0]) }, 'Siguiente');
+    else if (a.fase === 1) siguiente = el('button.btn.btn-primario', { onclick: confirmarFase1 }, 'Confirmar y pasar al partido');
+    else siguiente = el('button.btn.btn-primario', { onclick: finalizar }, 'Finalizar acta');
 
     app.append(
       el(
@@ -327,8 +376,8 @@
           el('button.btn', { onclick: () => (guardar(true), pantallaLista()) }, '← Mis actas'),
           el(
             'div.fila-botones',
-            idx > 0 ? el('button.btn', { onclick: () => irA(PESTANAS[idx - 1][0]) }, 'Anterior') : null,
-            idx < PESTANAS.length - 1 ? el('button.btn.btn-oscuro', { onclick: () => irA(PESTANAS[idx + 1][0]) }, 'Siguiente') : el('button.btn.btn-primario', { onclick: finalizar }, 'Finalizar acta')
+            idx > 0 ? el('button.btn', { onclick: () => irA(pest[idx - 1][0]) }, 'Anterior') : a.fase === 2 ? el('button.btn', { onclick: volverFase1 }, '← Fase 1') : null,
+            siguiente
           )
         )
       )
@@ -341,6 +390,57 @@
       id = 'partido';
     }
     S.pestana = id;
+    pintarEditor();
+    window.scrollTo(0, 0);
+  }
+
+  async function confirmarFase1() {
+    const a = S.acta;
+    const { errores, avisos } = validarFase1(a);
+    if (errores.length) {
+      await dialogo({ titulo: 'Faltan datos de la fase 1', cuerpo: [el('p', 'Corrige lo siguiente antes de empezar el partido:'), el('ul', errores.map((e) => el('li', e)))] });
+      return;
+    }
+    const resumen = ['local', 'visitante'].map((l) => {
+      const c = convocados(a[l]);
+      return el('li', `${nombreEquipo(a[l])}: ${c.filter((j) => j.posicion !== 'Portero').length} jugadores y ${c.filter((j) => j.posicion === 'Portero').length} porteros`);
+    });
+    const ok = await dialogo({
+      titulo: 'Pasar a la fase 2: partido',
+      cuerpo: [
+        el('ul', { style: 'margin:0;padding-left:18px' }, resumen),
+        avisos.length ? el('div.nota.nota-alerta', el('b', 'Revisa: '), el('ul', { style: 'margin:4px 0 0;padding-left:18px' }, avisos.map((x) => el('li', x)))) : null,
+        el('p.ayuda', 'Los participantes quedan fijados. Si hace falta corregirlos, podrás volver a la fase 1.'),
+      ],
+      botones: [
+        { texto: 'Seguir revisando', valor: false },
+        { texto: 'Empezar fase 2', valor: true, primario: true },
+      ],
+    });
+    if (!ok) return;
+    ['local', 'visitante'].forEach((l) => convocados(a[l]).forEach((j) => {
+      if (j.participa === undefined) j.participa = true;
+    }));
+    a.fase = 2;
+    sincronizarResultado(a);
+    await guardar(true);
+    S.pestana = 'juego-local';
+    pintarEditor();
+    window.scrollTo(0, 0);
+  }
+
+  async function volverFase1() {
+    const a = S.acta;
+    const firmada = a.local.firma || a.visitante.firma;
+    const ok = await confirmar(
+      'Volver a la fase 1',
+      'Podrás corregir los datos del encuentro y los participantes. Los goles y tarjetas anotados se conservan.' + (firmada ? ' Si cambias algo, los entrenadores tendrán que volver a firmar.' : ''),
+      'Volver a la fase 1'
+    );
+    if (!ok) return;
+    a.fase = 1;
+    await guardar(true);
+    S.pestana = 'conv-local';
     pintarEditor();
     window.scrollTo(0, 0);
   }
@@ -429,8 +529,8 @@
     );
   }
 
-  /* ---------- Pestaña: equipo ---------- */
-  function tabEquipo(cont, lado) {
+  /* ---------- Fase 1: participantes de cada equipo ---------- */
+  function tabConvocatoria(cont, lado) {
     const a = S.acta;
     const t = a[lado];
     const otro = a[lado === 'local' ? 'visitante' : 'local'];
@@ -447,9 +547,7 @@
             return;
           }
           const nuevo = equipoVacio();
-          if (v === '__otro') {
-            nuevo.nombre = '';
-          } else if (v) {
+          if (v && v !== '__otro') {
             const cfg = equipoCfg(v);
             nuevo.equipoId = cfg.id;
             nuevo.nombre = cfg.nombre;
@@ -500,7 +598,7 @@
     };
 
     const fila = (j) => {
-      const tr = el('div.jug');
+      const tr = el('div.jug.conv');
       const actualizarClases = () => {
         tr.classList.toggle('no-juega', !j.juega);
         tr.classList.toggle('portero', j.posicion === 'Portero');
@@ -516,7 +614,7 @@
           el('input', {
             type: 'checkbox',
             checked: j.juega,
-            title: 'Juega',
+            title: 'En el acta',
             'aria-label': 'Incluir en el acta',
             onchange: (e) => {
               if (e.target.checked && !cabe(j)) {
@@ -546,14 +644,11 @@
                 pintarContador();
               },
             },
-            [['Jugador', 'Jug.'], ['Portero', 'Port.']].map(([p, t]) => el('option', { value: p, selected: j.posicion === p }, t))
+            [['Jugador', 'Jugador'], ['Portero', 'Portero']].map(([p, tx]) => el('option', { value: p, selected: j.posicion === p }, tx))
           )
         ),
         el('div.c-apellidos', el('input', { value: j.apellidos, placeholder: 'Apellidos', 'aria-label': 'Apellidos', readonly: j.plantilla || null, oninput: (e) => cambiar('apellidos', e.target.value) })),
         el('div.c-nombre', el('input', { value: j.nombre, placeholder: 'Nombre', 'aria-label': 'Nombre', readonly: j.plantilla || null, oninput: (e) => cambiar('nombre', e.target.value) })),
-        el('div.c-goles', el('span.etq-movil', 'Goles'), contadorNum(j, 'goles', 0, 99, (v) => cambiar('goles', v), 'Goles')),
-        el('div.c-amarillas', el('span.etq-movil', 'Amar.'), contadorNum(j, 'amarillas', 0, 2, (v) => cambiar('amarillas', v), 'Tarjetas amarillas', 'amarilla')),
-        el('div.c-roja', botonRoja(j, (v) => cambiar('roja', v))),
         el(
           'div.c-borrar',
           j.plantilla
@@ -580,31 +675,21 @@
 
     const pintarLista = () => {
       lista.replaceChildren(
-        el('div.jug.cabecera', el('div', '✓'), el('div', 'Dorsal'), el('div', 'Posición'), el('div', 'Apellidos'), el('div', 'Nombre'), el('div', 'Goles'), el('div', 'Amarillas'), el('div', 'Roja'), el('div', '')),
+        el('div.jug.conv.cabecera', el('div', '✓'), el('div', 'Dorsal'), el('div', 'Posición'), el('div', 'Apellidos'), el('div', 'Nombre'), el('div', '')),
         ...ordenados().map(fila)
       );
-      if (!t.jugadores.length) lista.append(el('div.vacio', t.equipoId || manual ? 'Añade los jugadores que participan.' : 'Elige primero el equipo.'));
+      if (!t.jugadores.length) lista.append(el('div.vacio', t.equipoId || manual ? 'Añade los jugadores que figuran en el acta.' : 'Elige primero el equipo.'));
       pintarContador();
     };
     pintarLista();
 
-    const persona = (titulo, obj) =>
-      el(
-        'div.persona',
-        el('h3', titulo),
-        el('div.fila', campo('Apellidos', obj, 'apellidos'), campo('Nombre', obj, 'nombre')),
-        el('div.tarjetas', el('span.ayuda', 'Amarillas'), contadorNum(obj, 'amarillas', 0, 2, (v) => ((obj.amarillas = v), guardar()), 'Amarillas', 'amarilla'), el('span.ayuda', 'Roja'), botonRoja(obj, (v) => ((obj.roja = v), guardar())))
-      );
+    const persona = (titulo, obj) => el('div.persona', el('h3', titulo), el('div.fila', campo('Apellidos', obj, 'apellidos'), campo('Nombre', obj, 'nombre')));
 
     cont.append(
       el(
         'div.tarjeta',
         el('h2', lado === 'local' ? 'Equipo local' : 'Equipo visitante'),
-        el(
-          'div.rejilla',
-          el('label.campo', el('span.req', 'Equipo'), selEquipo),
-          manual ? campo('Nombre del equipo', t, 'nombre', { onCambio: () => {} }, true) : null
-        ),
+        el('div.rejilla', el('label.campo', el('span.req', 'Equipo'), selEquipo), manual ? campo('Nombre del equipo', t, 'nombre', {}, true) : null),
         manual ? el('div.nota.nota-alerta', { style: 'margin-top:12px' }, 'Equipo no registrado: no tendrá código de firma y el acta se cerrará sin firma de su entrenador.') : null
       ),
       el(
@@ -612,7 +697,7 @@
         el(
           'div.fila-botones',
           { style: 'justify-content:space-between;margin-bottom:10px' },
-          el('div', el('h2', { style: 'margin:0' }, 'Jugadores'), contador),
+          el('div', el('h2', { style: 'margin:0' }, 'Participantes'), contador),
           el(
             'div.fila-botones',
             t.jugadores.some((j) => j.plantilla)
@@ -643,17 +728,108 @@
                 t.jugadores.push(j);
                 guardar();
                 pintarLista();
-                const ins = lista.querySelectorAll('.c-apellidos input');
-                const ult = Array.from(ins).find((i) => !i.value && !i.readOnly);
+                const ult = Array.from(lista.querySelectorAll('.c-apellidos input')).find((i) => !i.value && !i.readOnly);
                 if (ult) ult.focus();
               },
             }, '+ Jugador a mano')
           )
         ),
-        el('p.ayuda', 'Marca ✓ a los que participan. Los jugadores de la plantilla no se pueden renombrar; si falta alguien, añádelo a mano.'),
+        el('p.ayuda', 'Marca ✓ a los jugadores que figuran en el acta y revisa su dorsal. Los de la plantilla no se pueden renombrar; si falta alguien, añádelo a mano.'),
         lista
       ),
-      el('div.tarjeta', el('h2', 'Banquillo'), el('div.staff', persona('Entrenador', t.entrenador), esF5 ? persona('Guía', t.guia) : null)),
+      el('div.tarjeta', el('h2', 'Cuerpo técnico'), el('div.staff', persona('Entrenador', t.entrenador), esF5 ? persona('Guía', t.guia) : null))
+    );
+  }
+
+  /* ---------- Fase 2: participación, goles, amonestaciones y faltas ---------- */
+  function tabJuego(cont, lado) {
+    const a = S.acta;
+    const t = a[lado];
+    const esF5 = modalidad(a) === 'f5';
+    const lista = el('div.jugadores');
+    const contador = el('div.ayuda');
+
+    const ordenados = () =>
+      convocados(t).sort((x, y) => (x.posicion === 'Portero') - (y.posicion === 'Portero') || (Number(x.dorsal) || 999) - (Number(y.dorsal) || 999));
+
+    const pintarContador = () => {
+      const c = convocados(t);
+      contador.textContent = `${c.filter((j) => j.participa !== false).length} de ${c.length} han participado · ${golesDe(t)} goles`;
+    };
+
+    const fila = (j) => {
+      const tr = el('div.jug.juego');
+      const cambiar = (clave, v) => {
+        j[clave] = v;
+        sincronizarResultado(a);
+        guardar();
+        pintarContador();
+      };
+      const goles = el('div.c-goles', el('span.etq-movil', 'Goles'), contadorNum(j, 'goles', 0, 99, (v) => cambiar('goles', v), 'Goles'));
+      const actualizar = () => {
+        tr.classList.toggle('no-participa', j.participa === false);
+        tr.classList.toggle('portero', j.posicion === 'Portero');
+      };
+      tr.append(
+        el(
+          'div.c-juega',
+          el('input', {
+            type: 'checkbox',
+            checked: j.participa !== false,
+            title: 'Ha participado',
+            'aria-label': 'Ha participado ' + j.nombre + ' ' + j.apellidos,
+            onchange: (e) => {
+              if (!e.target.checked && Number(j.goles) > 0) {
+                j.goles = 0;
+                goles.querySelector('output').textContent = '0';
+              }
+              cambiar('participa', e.target.checked);
+              actualizar();
+            },
+          })
+        ),
+        el('div.c-dorsal', el('span.dorsal', j.dorsal || '—')),
+        el('div.c-persona', el('b', [j.nombre, j.apellidos].filter(Boolean).join(' ') || 'Sin nombre'), el('small', j.posicion === 'Portero' ? 'Portero' : 'Jugador')),
+        goles,
+        el('div.c-amarillas', el('span.etq-movil', 'Amar.'), contadorNum(j, 'amarillas', 0, 2, (v) => cambiar('amarillas', v), 'Tarjetas amarillas', 'amarilla')),
+        el('div.c-roja', botonRoja(j, (v) => cambiar('roja', v)))
+      );
+      actualizar();
+      return tr;
+    };
+
+    const pintarLista = () => {
+      const c = ordenados();
+      lista.replaceChildren(el('div.jug.juego.cabecera', el('div', 'Jugó'), el('div', 'Dorsal'), el('div', 'Jugador'), el('div', 'Goles'), el('div', 'Amarillas'), el('div', 'Roja')), ...c.map(fila));
+      if (!c.length) lista.append(el('div.vacio', 'No hay jugadores en el acta de este equipo. Si es un error, vuelve a la fase 1 para añadirlos.'));
+      pintarContador();
+    };
+    pintarLista();
+
+    const persona = (titulo, obj) =>
+      el(
+        'div.persona',
+        el('h3', titulo),
+        el('div', el('b', [obj.nombre, obj.apellidos].filter(Boolean).join(' ') || '—')),
+        el('div.tarjetas', el('span.ayuda', 'Amarillas'), contadorNum(obj, 'amarillas', 0, 2, (v) => ((obj.amarillas = v), guardar()), 'Amarillas', 'amarilla'), el('span.ayuda', 'Roja'), botonRoja(obj, (v) => ((obj.roja = v), guardar())))
+      );
+
+    cont.append(
+      el(
+        'div.tarjeta',
+        el(
+          'div.fila-botones',
+          { style: 'justify-content:space-between;margin-bottom:10px' },
+          el('div', el('h2', { style: 'margin:0' }, (lado === 'local' ? 'Local: ' : 'Visitante: ') + nombreEquipo(t)), contador),
+          el(
+            'div.fila-botones',
+            el('button.btn.btn-peq', { onclick: () => (convocados(t).forEach((j) => (j.participa = true)), guardar(), pintarLista()) }, 'Todos han jugado')
+          )
+        ),
+        el('p.ayuda', 'Desmarca a quien no haya llegado a jugar. Anota goles y tarjetas; los jugadores del banquillo también pueden ser amonestados.'),
+        lista
+      ),
+      el('div.tarjeta', el('h2', 'Amonestaciones al cuerpo técnico'), el('div.staff', persona('Entrenador', t.entrenador), esF5 ? persona('Guía', t.guia) : null)),
       el(
         'div.tarjeta',
         el('h2', 'Faltas acumuladas'),
@@ -881,7 +1057,8 @@
   }
 
   /* ---------- Validación y cierre ---------- */
-  function validar(a) {
+  /** Comprobaciones de la fase 1 (datos del encuentro y participantes). */
+  function validarFase1(a) {
     const errores = [];
     const avisos = [];
     const p = a.partido;
@@ -907,6 +1084,12 @@
       if (!c.some((j) => j.posicion === 'Portero') && c.length) avisos.push(nom + ': no hay ningún portero.');
     });
     if (a.local.nombre && a.local.nombre === a.visitante.nombre) errores.push('Local y visitante son el mismo equipo.');
+    return { errores, avisos };
+  }
+
+  /** Comprobaciones completas para cerrar el acta (fase 1 + fase 2). */
+  function validar(a) {
+    const { errores, avisos } = validarFase1(a);
     if (a.resultado.local === '' || a.resultado.visitante === '') errores.push('Falta el resultado.');
     if (String(golesDe(a.local)) !== String(a.resultado.local) || String(golesDe(a.visitante)) !== String(a.resultado.visitante))
       avisos.push('El resultado no coincide con la suma de goles de los jugadores.');
@@ -925,6 +1108,10 @@
 
   async function finalizar() {
     const a = S.acta;
+    if ((a.fase || 1) < 2) {
+      aviso('Primero confirma la fase 1 y anota el desarrollo del partido.', 'alerta');
+      return;
+    }
     const { errores, avisos } = validar(a);
     if (errores.length) {
       await dialogo({ titulo: 'Faltan datos', cuerpo: [el('p', 'Corrige lo siguiente antes de cerrar el acta:'), el('ul', errores.map((e) => el('li', e)))] });

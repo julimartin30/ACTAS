@@ -1,5 +1,5 @@
 /* Permite usar la app sin cobertura en la instalación (tras haberla abierto una vez con conexión). */
-const CACHE = 'actas-v1';
+const CACHE = 'actas-v3';
 const BASE = [
   './',
   'index.html',
@@ -12,6 +12,7 @@ const BASE = [
   'js/admin.js',
   'vendor/pdf-lib.min.js',
   'assets/icono.svg',
+  'assets/logo.png',
   'manifest.webmanifest',
 ];
 

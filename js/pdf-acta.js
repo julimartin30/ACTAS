@@ -47,8 +47,8 @@
     const NEGRO = rgb(0, 0, 0);
     const GRIS = rgb(0.82, 0.82, 0.82);
     const GRIS_OSC = rgb(0.55, 0.55, 0.55);
-    const MARCA = rgb(0.075, 0.137, 0.247);
-    const ROJO = rgb(0.78, 0.06, 0.18);
+    const MARCA = rgb(0.11, 0.11, 0.11);
+    const ROJO = rgb(0.69, 0, 0.12);
     const TENUE = rgb(0.35, 0.35, 0.35);
 
     const comp = (datos.competiciones || []).find((c) => c.id === acta.competicion) || { nombre: '', modalidad: 'fs' };
@@ -253,6 +253,7 @@
           celda(per.apellidos, xs[2], y, cols[2][1], hFila, { size: 7.5 });
           celda(per.nombre, xs[3], y, cols[3][1], hFila, { size: 7.5 });
           if (i < 10 && Number(per.goles) > 0) celda(String(per.goles), xs[4], y, cols[4][1], hFila, { align: 'center', bold: true, size: 8 });
+          else if (i < 10 && per.participa === false) celda('N/P', xs[4], y, cols[4][1], hFila, { align: 'center', size: 6.5, color: TENUE });
           if (Number(per.amarillas) > 0) celda(String(per.amarillas), xs[5], y, cols[5][1], hFila, { align: 'center', bold: true, size: 8 });
           if (per.roja) celda('X', xs[6], y, cols[6][1], hFila, { align: 'center', bold: true, size: 8, color: ROJO });
         }
@@ -389,6 +390,7 @@
         'Acta electrónica ' + acta.numero,
         acta.cierre ? 'Cerrada el ' + fechaHora(acta.cierre.fecha) + ' por ' + acta.cierre.arbitro + ' (' + acta.cierre.usuario + ')' : 'BORRADOR - SIN CERRAR',
         acta.cierre && acta.cierre.huella ? 'Verificación: ' + acta.cierre.huella.slice(0, 16).toUpperCase() : '',
+        ['local', 'visitante'].some((l) => (acta[l].jugadores || []).some((j) => j.juega && j.participa === false)) ? 'N/P = no participó' : '',
         'Página ' + (i + 1) + '/' + paginas.length,
       ]
         .filter(Boolean)

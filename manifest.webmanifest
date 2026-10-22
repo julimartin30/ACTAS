@@ -3,8 +3,8 @@
   "short_name": "Actas",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f3f1ec",
-  "theme_color": "#13233f",
+  "background_color": "#b0001e",
+  "theme_color": "#b0001e",
   "lang": "es",
   "icons": [
     { "src": "assets/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }

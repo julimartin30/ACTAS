@@ -82,7 +82,7 @@
         'div.login',
         el(
           'div.tarjeta',
-          el('div.cabecera-login', el('div.distintivo', 'ACT'), el('div', el('h1', 'Administración'), el('div.ayuda', 'Gestión de equipos, árbitros y códigos de firma'))),
+          el('div.cabecera-login', el('img.logo-login', { src: 'assets/logo.png', alt: 'FEDC' }), el('h1', 'Administración'), el('div.ayuda', 'Gestión de equipos, árbitros y códigos de firma')),
           error ? el('div.nota.nota-error', error) : null,
           S.fichero
             ? form
